@@ -25,7 +25,7 @@ DATABASE_URL = "postgresql://postgres:Msbguv.12345!!!!!@db.doukedhgnaonecbeenqx.
 # Supabase Storage ve API Bilgileri
 SUPABASE_URL = "https://doukedhgnaonecbeenqx.supabase.co"
 # ÖNEMLİ: Supabase panelinden 'service_role' (secret) anahtarını buraya yapıştır!
-SUPABASE_KEY = "BURAYA_SERVICE_ROLE_KEY_GELECEK" 
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtjcWlrZXl5dHNoZW1wdHhidnh6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NjI1NDM2NiwiZXhwIjoyMDkxODMwMzY2fQ.60Q3vQ6YAExjcqVQy3k6ovuS78XxakBEvqHjWskfnTc" 
 
 supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
