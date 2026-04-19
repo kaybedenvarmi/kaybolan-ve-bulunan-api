@@ -1,67 +1,61 @@
+import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 import uuid
 from datetime import datetime
 import os
 import traceback
+
+# --- MONKEYPATCH FOR HTTPX PROXY ERROR ---
+# Bu blok, Supabase kütüphanesinin httpx'e geçersiz 'proxy' parametresi göndermesini engeller.
+original_init = httpx.Client.__init__
+
+def patched_init(self, *args, **kwargs):
+    if "proxy" in kwargs:
+        # Eğer 'proxy' varsa ve 'proxies' yoksa, parametreyi dönüştür veya sil
+        if "proxies" not in kwargs:
+            kwargs["proxies"] = kwargs.pop("proxy")
+        else:
+            kwargs.pop("proxy")
+    original_init(self, *args, **kwargs)
+
+httpx.Client.__init__ = patched_init
+# -----------------------------------------
+
 from supabase import create_client, Client
-from supabase.lib.client_options import ClientOptions
 
 # --- CONFIGURATION ---
-# SUPABASE PROJECT: kcqikeyytshemptxbvxz
 SUPABASE_URL = "https://kcqikeyytshemptxbvxz.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtjcWlrZXl5dHNoZW1wdHhidnh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNTQzNjYsImV4cCI6MjA5MTgzMDM2Nn0.LyFRsohwV9YKT3W5BxsEhuzRsfLyxG0ppZ0H3ldPLZU"
 
-# Supabase client singleton
 _supabase: Optional[Client] = None
 
 def get_supabase() -> Client:
-    """
-    Returns the Supabase client, initializing it if necessary.
-    Uses custom options to bypass the 'proxy' keyword argument error in certain httpx versions.
-    """
     global _supabase
     if _supabase is None:
         try:
-            # ClientOptions kullanarak kütüphanenin otomatik proxy ayarı yapmasını engelliyoruz
-            options = ClientOptions(
-                postgrest_client_timeout=10,
-                storage_client_timeout=10
-            )
-            # create_client fonksiyonuna bu seçenekleri paslıyoruz
-            _supabase = create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
-        except TypeError as te:
-            # Eğer hata hala devam ediyorsa, kütüphanenin en temel haline zorluyoruz
-            print(f"SUPABASE TYPE ERROR (Proxy issue): {str(te)}")
-            try:
-                _supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-            except:
-                raise RuntimeError(f"Library version mismatch: {str(te)}")
+            # Yamalı httpx ile güvenli başlatma
+            _supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         except Exception as e:
-            print(f"SUPABASE CONNECTION ERROR: {str(e)}")
+            print(f"CRITICAL: Supabase connection failed: {str(e)}")
             raise RuntimeError(f"Database connection failed: {str(e)}")
     return _supabase
 
 app = FastAPI()
 
-# Global Exception Handler for debugging in Vercel logs
+# Global Exception Handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     error_trace = traceback.format_exc()
-    print(f"CRITICAL ERROR: {error_trace}")
+    print(f"LOGS: {error_trace}")
     return JSONResponse(
         status_code=500,
-        content={
-            "status": "error",
-            "message": str(exc),
-            "type": type(exc).__name__
-        }
+        content={"status": "error", "message": str(exc)}
     )
 
-# CORS Configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -71,7 +65,6 @@ app.add_middleware(
 )
 
 # --- MODELS ---
-
 class UserCreate(BaseModel):
     name: str
     email: str
@@ -102,40 +95,28 @@ class CommentCreate(BaseModel):
 @app.get("/")
 def read_root():
     db_status = "disconnected"
-    error_detail = None
     try:
         client = get_supabase()
-        # Bağlantıyı test etmek için basit bir tablo okuması yapıyoruz
         client.table('users').select('id').limit(1).execute()
         db_status = "connected"
     except Exception as e:
-        error_detail = str(e)
-        print(f"Root check failed: {error_detail}")
+        print(f"Status check failed: {e}")
 
     return {
         "status": "active",
-        "version": "2.2.3-stable",
-        "database": db_status,
-        "diag": error_detail if db_status == "disconnected" else "OK"
+        "version": "2.2.4-patch",
+        "database": db_status
     }
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok", "time": datetime.now().isoformat()}
-
-# --- USER OPERATIONS ---
 
 @app.post("/users/register")
 def register(user: UserCreate):
     db = get_supabase()
     user_id = str(uuid.uuid4())
     try:
-        # Check existing user
         existing = db.table('users').select('id').eq('email', user.email).execute()
         if existing.data:
             raise HTTPException(status_code=400, detail="E-posta zaten kayıtlı.")
         
-        # Insert user
         db.table('users').insert({
             "id": user_id, 
             "email": user.email, 
@@ -150,7 +131,7 @@ def register(user: UserCreate):
         return {"message": "Kayıt başarılı", "userId": user_id}
     except Exception as e:
         if isinstance(e, HTTPException): raise e
-        raise HTTPException(status_code=500, detail=f"Kayıt hatası: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/users/login")
 def login(data: UserLogin):
@@ -159,14 +140,9 @@ def login(data: UserLogin):
         result = db.table('users').select('*').eq('email', data.email).eq('passwordHash', data.passwordHash).execute()
         if not result.data:
             raise HTTPException(status_code=401, detail="E-posta veya şifre yanlış.")
-        
-        user = result.data[0]
-        return {"id": user["id"], "name": user["name"], "email": user["email"], "isAdmin": user.get("isAdmin", 0)}
+        return result.data[0]
     except Exception as e:
-        if isinstance(e, HTTPException): raise e
         raise HTTPException(status_code=500, detail=str(e))
-
-# --- POST OPERATIONS ---
 
 @app.get("/posts")
 def get_posts():
@@ -174,8 +150,7 @@ def get_posts():
     try:
         result = db.table('posts').select('*').eq('status', 'approved').order('datePosted', desc=True).execute()
         return result.data
-    except Exception as e:
-        print(f"Fetch error: {e}")
+    except:
         return []
 
 @app.post("/posts")
@@ -187,9 +162,9 @@ def create_post(post: PostCreate):
         data["datePosted"] = datetime.now().isoformat()
         data["status"] = "pending"
         db.table('posts').insert(data).execute()
-        return {"message": "İlan oluşturuldu, onay bekliyor."}
+        return {"message": "İlan oluşturuldu."}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"İlan hatası: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
@@ -198,37 +173,8 @@ async def upload_image(file: UploadFile = File(...)):
         ext = os.path.splitext(file.filename)[1]
         filename = f"{uuid.uuid4()}{ext}"
         content = await file.read()
-        
-        db.storage.from_("images").upload(
-            path=filename, 
-            file=content, 
-            file_options={"content-type": file.content_type}
-        )
-        
+        db.storage.from_("images").upload(path=filename, file=content)
         url = db.storage.from_("images").get_public_url(filename)
         return {"imageUrl": url}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Yükleme hatası: {str(e)}")
-
-# --- COMMENT OPERATIONS ---
-
-@app.get("/comments/{post_id}")
-def get_comments(post_id: str):
-    db = get_supabase()
-    try:
-        result = db.table('comments').select('*').eq('postId', post_id).execute()
-        return result.data
-    except:
-        return []
-
-@app.post("/comments")
-def add_comment(comment: CommentCreate):
-    db = get_supabase()
-    try:
-        data = comment.dict()
-        data["id"] = str(uuid.uuid4())
-        data["datePosted"] = datetime.now().isoformat()
-        db.table('comments').insert(data).execute()
-        return {"message": "Yorum eklendi"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
