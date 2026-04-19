@@ -1,6 +1,6 @@
-fastapi==0.109.0
-pydantic==2.5.3
-supabase==2.3.4
-python-multipart==0.0.6
-uvicorn==0.27.0
- 
+fastapi
+uvicorn
+supabase
+python-multipart
+pydantic
+2.  **Vercel Logs:** Eğer hata devam ederse, Vercel Dashboard üzerinden **Deployments > [Projeniz] > Logs** sekmesine gidin. Orada kırmızı renkli hata mesajını göreceksiniz. Eklediğim `global_exception_handler` sayesinde hata artık sadece "500" değil, hatanın nedenini belirten bir JSON mesajı döndürecektir.
