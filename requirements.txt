@@ -4,3 +4,5 @@ supabase==2.3.0
 httpx==0.24.1
 python-multipart
 pydantic
+
+Bu versiyon ikilisi (`supabase 2.3.0` ve `httpx 0.24.1`), Vercel ortamındaki o meşhur `proxy` hatasını çözen en stabil ikilidir. Dosyayı güncelleyip tekrar denediğinizde `database: connected` mesajını görmeniz gerekiyor.
