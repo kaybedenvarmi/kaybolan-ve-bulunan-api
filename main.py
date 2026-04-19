@@ -8,11 +8,7 @@ import uuid
 from datetime import datetime
 import os
 import traceback
-import httpx
 from supabase import create_client, Client
-
-# Supabase için özel HTTPX client (proxy sorununu çözer)
-custom_http_client = httpx.Client()
 
 # --- CONFIGURATION ---
 SUPABASE_URL = "https://kcqikeyytshemptxbvxz.supabase.co"
@@ -24,12 +20,8 @@ def get_supabase() -> Client:
     global _supabase
     if _supabase is None:
         try:
-            # Özel HTTPX client ile Supabase bağlantısı
-            _supabase = create_client(
-                SUPABASE_URL, 
-                SUPABASE_KEY,
-                http_client=custom_http_client
-            )
+            # Hiçbir ek parametre YOK - en basit hali
+            _supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         except Exception as e:
             print(f"CRITICAL: Supabase connection failed: {str(e)}")
             raise RuntimeError(f"Database connection failed: {str(e)}")
@@ -171,6 +163,5 @@ async def upload_image(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# === VERCEL HANDLER (EN ALTTA OLMALI) ===
-# Bu satır Vercel'in çağıracağı fonksiyondur
+# === VERCEL HANDLER ===
 handler = Mangum(app)
