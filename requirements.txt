@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-supabase
+supabase==2.3.0
+httpx==0.24.1
 python-multipart
 pydantic
-2.  **Vercel Logs:** Eğer hata devam ederse, Vercel Dashboard üzerinden **Deployments > [Projeniz] > Logs** sekmesine gidin. Orada kırmızı renkli hata mesajını göreceksiniz. Eklediğim `global_exception_handler` sayesinde hata artık sadece "500" değil, hatanın nedenini belirten bir JSON mesajı döndürecektir.
