@@ -8,6 +8,7 @@ from datetime import datetime
 import os
 import smtplib
 import random
+import traceback
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from supabase import create_client, Client
@@ -29,12 +30,18 @@ except Exception as e:
 
 app = FastAPI()
 
-# Küresel Hata Yakalayıcı (Vercel Loglarında hatayı görmek için)
+# Küresel Hata Yakalayıcı (Vercel Loglarında ve yanıtta hatayı detaylı görmek için)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    error_details = traceback.format_exc()
+    print(f"CRITICAL ERROR: {error_details}")
     return JSONResponse(
         status_code=500,
-        content={"message": "Sunucu hatası oluştu", "detail": str(exc)},
+        content={
+            "message": "Sunucu hatası oluştu",
+            "detail": str(exc),
+            "traceback": error_details if os.getenv("VERCEL_ENV") != "production" else "Hata detayları gizlendi"
+        },
     )
 
 # CORS Ayarları: Frontend erişimi için tam izin
