@@ -26,7 +26,7 @@ def get_supabase() -> Client:
             raise RuntimeError(f"Veritabanı bağlantı hatası: {str(e)}")
     return _supabase
 
-app = FastAPI(title="Kaybeden ve Bulan Kurumsal API", version="3.0.0")
+app = FastAPI(title="Kaybeden ve Bulan Kurumsal API", version="3.1.0")
 
 # --- CORS AYARLARI ---
 app.add_middleware(
@@ -56,6 +56,12 @@ class PostCreate(BaseModel):
     longitude: Optional[float] = None
     contactInfo: Optional[str] = None
 
+class CommentCreate(BaseModel):
+    postId: str
+    userId: str
+    userName: str
+    content: str
+
 # --- ROTALAR ---
 
 @app.get("/")
@@ -73,7 +79,6 @@ def get_admin_stats():
     """Admin paneli için özet istatistikleri döndürür."""
     db = get_supabase()
     try:
-        # İstatistikleri paralel gibi çekiyoruz
         users_count = db.table('users').select('id', count='exact').execute()
         pending_posts = db.table('posts').select('id', count='exact').eq('status', 'pending').execute()
         approved_posts = db.table('posts').select('id', count='exact').eq('status', 'approved').execute()
@@ -89,7 +94,7 @@ def get_admin_stats():
 
 @app.get("/admin/pending-posts")
 def get_pending_posts():
-    """Onay bekleyen ilanları listeler (Sadece admin için)."""
+    """Onay bekleyen ilanları listeler."""
     db = get_supabase()
     result = db.table('posts').select('*').eq('status', 'pending').order('datePosted', desc=True).execute()
     return result.data
@@ -128,7 +133,7 @@ def register(user: UserCreate):
         if isinstance(e, HTTPException): raise e
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- İLAN İŞLEMLERİ ---
+# --- İLAN VE DETAY İŞLEMLERİ ---
 
 @app.get("/posts")
 def get_posts(category: Optional[str] = None, type: Optional[str] = None):
@@ -144,6 +149,37 @@ def get_posts(category: Optional[str] = None, type: Optional[str] = None):
     result = query.order('datePosted', desc=True).execute()
     return result.data
 
+@app.get("/posts/{post_id}")
+def get_post_detail(post_id: str):
+    """İlan detaylarını ve yorumlarını getirir, izlenme sayısını artırır."""
+    db = get_supabase()
+    try:
+        # İlanı getir
+        post_res = db.table('posts').select('*').eq('id', post_id).execute()
+        if not post_res.data:
+            raise HTTPException(status_code=404, detail="İlan bulunamadı.")
+        
+        post = post_res.data[0]
+        
+        # İzlenme sayısını artır
+        views = post.get("views", 0) + 1
+        db.table('posts').update({"views": views}).eq('id', post_id).execute()
+        post["views"] = views
+
+        # Yorumları getir
+        comments_res = db.table('comments').select('*').eq('postId', post_id).order('createdAt').execute()
+        
+        # Benzer ilanları getir (Aynı kategori, farklı ID)
+        similar_res = db.table('posts').select('id,title,imageUrl,type').eq('category', post['category']).eq('status', 'approved').neq('id', post_id).limit(4).execute()
+
+        return {
+            "post": post,
+            "comments": comments_res.data if comments_res.data else [],
+            "similarPosts": similar_res.data if similar_res.data else []
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/posts")
 def create_post(post: PostCreate):
     db = get_supabase()
@@ -152,9 +188,30 @@ def create_post(post: PostCreate):
         post_data["id"] = str(uuid.uuid4())
         post_data["datePosted"] = datetime.now().isoformat()
         post_data["status"] = "pending"
+        post_data["views"] = 0
         
         db.table('posts').insert(post_data).execute()
-        return {"status": "success", "message": "İlanınız sisteme iletildi. Kontrol sonrası yayınlanacaktır."}
+        return {"status": "success", "message": "İlanınız iletildi. Kontrol sonrası yayınlanacaktır."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- YORUM SİSTEMİ ---
+
+@app.post("/comments")
+def add_comment(comment: CommentCreate):
+    """İlana yeni bir yorum ekler."""
+    db = get_supabase()
+    try:
+        comment_data = {
+            "id": str(uuid.uuid4()),
+            "postId": comment.postId,
+            "userId": comment.userId,
+            "userName": comment.userName,
+            "content": comment.content,
+            "createdAt": datetime.now().isoformat()
+        }
+        db.table('comments').insert(comment_data).execute()
+        return {"status": "success", "message": "Yorumunuz eklendi."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
