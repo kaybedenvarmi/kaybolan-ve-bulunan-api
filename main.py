@@ -1,5 +1,22 @@
+
 import httpx
-from fastapi import FastAPI, HTTPException, UploadFile, File, Request
+from fa# === VERCEL ASGI ADAPTÖRÜ ===
+# Bu, FastAPI uygulamanızı Vercel'de çalıştırmak için GEREKLİ
+from mangum import Mangum
+
+# ... (mevcut import'larınız burada kalacak)
+# import httpx
+# from fastapi import FastAPI...
+# ...
+
+# App oluşturulduktan SONRA, en alta ekleyin:
+app = FastAPI()
+
+# ... (tüm route'larınız burada)
+
+# === VERCEL HANDLER ===
+# Bu SATIR ÇOK ÖNEMLİ - Vercel'in çağıracağı fonksiyon
+handler = Mangum(app)stapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
