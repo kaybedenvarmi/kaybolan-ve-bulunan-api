@@ -23,8 +23,10 @@ SUPABASE_URL = "https://kcqikeyytshemptxbvxz.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtjcWlrZXl5dHNoZW1wdHhidnh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNTQzNjYsImV4cCI6MjA5MTgzMDM2Nn0.LyFRsohwV9YKT3W5BxsEhuzRsfLyxG0ppZ0H3ldPLZU"
 
 # Supabase istemcisini başlat
+supabase: Optional[Client] = None
 try:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    if SUPABASE_URL and SUPABASE_KEY:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
     print(f"SUPABASE INIT ERROR: {e}")
 
@@ -40,7 +42,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={
             "message": "Sunucu hatası oluştu",
             "detail": str(exc),
-            "traceback": error_details if os.getenv("VERCEL_ENV") != "production" else "Hata detayları gizlendi"
+            "traceback": error_details
         },
     )
 
@@ -123,13 +125,19 @@ def read_root():
         "mesaj": "Kayıp ve Bulunan API Vercel'de Aktif!",
         "veritabani": "Supabase REST API",
         "proje": "kcqikeyytshemptxbvxz",
-        "durum": "Sistemler çalışıyor (V2.1)"
+        "durum": "Sistemler çalışıyor (V2.1 - Stabil)",
+        "supabase_connected": supabase is not None
     }
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 # --- KULLANICI İŞLEMLERİ ---
 
 @app.post("/users/register")
 def register(user: UserCreate):
+    if not supabase: raise HTTPException(status_code=503, detail="Veritabanı bağlantısı kurulamadı.")
     user_id = str(uuid.uuid4())
     code = str(random.randint(100000, 999999))
     try:
@@ -154,6 +162,7 @@ def register(user: UserCreate):
 
 @app.post("/users/login")
 def login(data: UserLogin):
+    if not supabase: raise HTTPException(status_code=503, detail="Veritabanı bağlantısı kurulamadı.")
     try:
         result = supabase.table('users').select('*').eq('email', data.email).eq('passwordHash', data.passwordHash).execute()
         if not result.data:
@@ -166,10 +175,11 @@ def login(data: UserLogin):
         return {"id": user["id"], "name": user["name"], "email": user["email"], "isAdmin": user.get("isAdmin", 0)}
     except Exception as e:
         if isinstance(e, HTTPException): raise e
-        raise HTTPException(status_code=500, detail="Giriş sırasında bir hata oluştu.")
+        raise HTTPException(status_code=500, detail=f"Giriş hatası: {str(e)}")
 
 @app.get("/users/verify-link")
 def verify_link(email: str, code: str):
+    if not supabase: return HTMLResponse("Veritabanı hatası")
     try:
         result = supabase.table('users').select('*').eq('email', email).eq('verificationCode', code).execute()
         if not result.data:
@@ -182,6 +192,7 @@ def verify_link(email: str, code: str):
 
 @app.patch("/users/{user_id}")
 def update_profile(user_id: str, data: ProfileUpdate):
+    if not supabase: raise HTTPException(status_code=503)
     try:
         update_dict = {k: v for k, v in data.dict().items() if v is not None}
         if "newPasswordHash" in update_dict:
@@ -197,6 +208,7 @@ def update_profile(user_id: str, data: ProfileUpdate):
 
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
+    if not supabase: raise HTTPException(status_code=503)
     try:
         ext = os.path.splitext(file.filename)[1]
         filename = f"{uuid.uuid4()}{ext}"
@@ -208,6 +220,7 @@ async def upload_image(file: UploadFile = File(...)):
 
 @app.get("/posts")
 def get_posts():
+    if not supabase: return []
     try:
         result = supabase.table('posts').select('*').eq('status', 'approved').order('datePosted', desc=True).execute()
         return result.data
@@ -215,6 +228,7 @@ def get_posts():
 
 @app.post("/posts")
 def create_post(post: PostCreate):
+    if not supabase: raise HTTPException(status_code=503)
     try:
         data = post.dict()
         data["id"] = str(uuid.uuid4())
@@ -227,6 +241,7 @@ def create_post(post: PostCreate):
 
 @app.get("/comments/{post_id}")
 def get_comments(post_id: str):
+    if not supabase: return []
     try:
         result = supabase.table('comments').select('*').eq('postId', post_id).execute()
         return result.data
@@ -234,6 +249,7 @@ def get_comments(post_id: str):
 
 @app.post("/comments")
 def add_comment(comment: CommentCreate):
+    if not supabase: raise HTTPException(status_code=503)
     try:
         data = comment.dict()
         data["id"] = str(uuid.uuid4())
@@ -247,6 +263,7 @@ def add_comment(comment: CommentCreate):
 
 @app.get("/posts/pending")
 def get_pending_posts():
+    if not supabase: return []
     try:
         result = supabase.table('posts').select('*').eq('status', 'pending').execute()
         return result.data
@@ -254,6 +271,7 @@ def get_pending_posts():
 
 @app.patch("/posts/{post_id}/status")
 def update_post_status(post_id: str, status: str):
+    if not supabase: raise HTTPException(status_code=503)
     try:
         supabase.table('posts').update({"status": status}).eq('id', post_id).execute()
         return {"message": f"Durum {status} yapıldı"}
