@@ -25,12 +25,12 @@ def get_supabase() -> Client:
     global _supabase
     if _supabase is None:
         try:
-            # The 'proxy' error is usually triggered here if httpx version is incompatible.
-            # Fixed via requirements.txt: httpx==0.24.1 and supabase==2.3.0
+            # create_client can fail if network is blocked or versions mismatch
             _supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         except Exception as e:
-            print(f"SUPABASE CONNECTION ERROR: {e}")
-            raise RuntimeError("Could not connect to database")
+            print(f"SUPABASE CONNECTION ERROR: {str(e)}")
+            # Raise a more descriptive error for internal logging
+            raise RuntimeError(f"Database connection failed: {str(e)}")
     return _supabase
 
 app = FastAPI()
@@ -89,15 +89,23 @@ class CommentCreate(BaseModel):
 
 @app.get("/")
 def read_root():
+    db_status = "disconnected"
+    error_detail = None
     try:
         client = get_supabase()
-        return {
-            "status": "active",
-            "version": "2.2.0-stable",
-            "database": "connected" if client else "failed"
-        }
-    except:
-        return {"status": "active", "database": "disconnected"}
+        # Bir basit sorgu ile bağlantıyı doğrula
+        client.table('users').select('count', count='exact').limit(1).execute()
+        db_status = "connected"
+    except Exception as e:
+        error_detail = str(e)
+        print(f"Root check failed: {error_detail}")
+
+    return {
+        "status": "active",
+        "version": "2.2.1-stable",
+        "database": db_status,
+        "diag": error_detail if db_status == "disconnected" else "OK"
+    }
 
 @app.get("/health")
 def health_check():
