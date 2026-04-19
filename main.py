@@ -1,5 +1,5 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -18,13 +18,24 @@ GMAIL_PASS = "hvpj qhwz feoe wkid"
 
 # SUPABASE PROJESİ: kcqikeyytshemptxbvxz
 SUPABASE_URL = "https://kcqikeyytshemptxbvxz.supabase.co"
-# En güncel anon public key yerleştirildi
+# ÖNEMLİ: Key'in tam ve doğru olduğundan emin olun.
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtjcWlrZXl5dHNoZW1wdHhidnh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNTQzNjYsImV4cCI6MjA5MTgzMDM2Nn0.LyFRsohwV9YKT3W5BxsEhuzRsfLyxG0ppZ0H3ldPLZU"
 
 # Supabase istemcisini başlat
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+try:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+except Exception as e:
+    print(f"SUPABASE INIT ERROR: {e}")
 
 app = FastAPI()
+
+# Küresel Hata Yakalayıcı (Vercel Loglarında hatayı görmek için)
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"message": "Sunucu hatası oluştu", "detail": str(exc)},
+    )
 
 # CORS Ayarları: Frontend erişimi için tam izin
 app.add_middleware(
