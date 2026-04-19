@@ -19,8 +19,10 @@ GMAIL_USER = "kaybedenvarmi@gmail.com"
 GMAIL_PASS = "hvpj qhwz feoe wkid"
 
 # Supabase PostgreSQL Bağlantısı
-# Not: Vercel üzerinde timeout hatalarını önlemek için connect_timeout parametresi eklendi.
-DATABASE_URL = "postgresql://postgres:Msbguv.12345!!!!!@db.doukedhgnaonecbeenqx.supabase.co:5432/postgres"
+# ÖNEMLİ: Vercel üzerinde IPv6 sorunlarını aşmak için Transaction Mode portu (6543) 
+# veya doğrudan bağlantı portu (5432) kullanılırken sslmode eklenmesi gerekebilir.
+# DATABASE_URL güncellendi: ?sslmode=require eklendi.
+DATABASE_URL = "postgresql://postgres:Msbguv.12345!!!!!@db.doukedhgnaonecbeenqx.supabase.co:5432/postgres?sslmode=require"
 
 # Supabase Storage ve API Bilgileri
 SUPABASE_URL = "https://doukedhgnaonecbeenqx.supabase.co"
@@ -30,23 +32,25 @@ supabase_client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI()
 
-# CORS Ayarları: Web sitenizin (kaybedenvebulan.com.tr) API'ye erişebilmesi için kritik.
+# CORS Ayarları: Web sitenizin API'ye her yerden erişebilmesi için.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
 def get_db():
     """Supabase PostgreSQL bağlantısını güvenli bir şekilde kurar."""
     try:
-        # connect_timeout=10: Vercel fonksiyonunun kapanmaması için 10 saniye limit.
-        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+        # connect_timeout=15: Vercel'in soğuk başlatma (cold start) süreleri için tolerans artırıldı.
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=15)
         conn.autocommit = True
         return conn
     except Exception as e:
-        print(f"CRITICAL: Veritabanı bağlantı hatası: {e}")
+        # Hatanın detayını Vercel Logs üzerinden görebilmek için print ekliyoruz.
+        print(f"CRITICAL: Veritabanı bağlantı hatası: {str(e)}")
         return None
 
 # --- VERİ MODELLERİ ---
@@ -107,15 +111,18 @@ def send_verification_email(email: str, code: str):
 def read_root():
     return {
         "mesaj": "Kayıp ve Bulunan API Vercel'de Aktif!",
-        "veritabani": "Supabase Bağlı",
-        "durum": "Sistemler normal çalışıyor"
+        "veritabani": "Bağlantı Test Ediliyor...",
+        "durum": "Sistemler çalışıyor"
     }
 
 @app.post("/users/register")
 def register(user: UserCreate):
     conn = get_db()
     if not conn: 
-        raise HTTPException(status_code=500, detail="Veritabanına ulaşılamıyor. Lütfen az sonra tekrar deneyin.")
+        raise HTTPException(
+            status_code=500, 
+            detail="Veritabanına ulaşılamıyor. Supabase bağlantısı kurulamadı. Lütfen internet bağlantınızı veya veritabanı durumunu kontrol edin."
+        )
     
     cur = conn.cursor()
     user_id = str(uuid.uuid4())
@@ -131,7 +138,8 @@ def register(user: UserCreate):
     except Exception as e:
         if "unique_violation" in str(e).lower() or "already exists" in str(e).lower():
             raise HTTPException(status_code=400, detail="Bu e-posta adresi zaten kayıtlı.")
-        raise HTTPException(status_code=500, detail=f"Kayıt Hatası: {str(e)}")
+        print(f"REGISTER ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Kayıt Hatası: Veritabanı işlemi başarısız.")
     finally:
         cur.close()
         conn.close()
@@ -140,7 +148,7 @@ def register(user: UserCreate):
 def login(data: UserLogin):
     conn = get_db()
     if not conn: 
-        raise HTTPException(status_code=500, detail="Bağlantı hatası.")
+        raise HTTPException(status_code=500, detail="Veritabanı bağlantı hatası.")
         
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -153,6 +161,9 @@ def login(data: UserLogin):
             raise HTTPException(status_code=403, detail="Lütfen giriş yapmadan önce e-posta adresinizi doğrulayın.")
             
         return user
+    except Exception as e:
+        print(f"LOGIN ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail="Giriş işlemi sırasında teknik bir hata oluştu.")
     finally:
         cur.close()
         conn.close()
@@ -185,6 +196,9 @@ def get_posts():
         cur.execute("SELECT * FROM posts WHERE status='approved' ORDER BY \"datePosted\" DESC")
         posts = cur.fetchall()
         return posts
+    except Exception as e:
+        print(f"POSTS FETCH ERROR: {str(e)}")
+        return []
     finally:
         cur.close()
         conn.close()
@@ -201,7 +215,7 @@ def create_post(post: PostCreate):
         )
         return {"message": "İlanınız başarıyla alındı. Yönetici onayından sonra yayınlanacaktır."}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"İlan oluşturma hatası: {str(e)}")
     finally:
         cur.close()
         conn.close()
@@ -222,12 +236,15 @@ def verify_link(email: str, code: str):
         
         cur.execute('UPDATE users SET "isVerified"=1, "verificationCode"=NULL WHERE email=%s', (email,))
         return HTMLResponse(content="""
-            <div style="text-align:center; margin-top:100px; font-family: Arial, sans-serif;">
-                <h1 style="color: #4CAF50;">Tebrikler!</h1>
-                <p>E-posta adresiniz başarıyla doğrulandı. Hesabınız artık aktif.</p>
-                <p>Uygulamaya dönüp giriş yapabilirsiniz.</p>
+            <div style="text-align:center; margin-top:100px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333;">
+                <h1 style="color: #4CAF50; font-size: 3rem;">✓ Başarılı!</h1>
+                <p style="font-size: 1.2rem;">E-posta adresiniz başarıyla doğrulandı. Hesabınız artık aktif.</p>
+                <p>Şimdi sitemize dönüp giriş yapabilirsiniz.</p>
+                <a href="https://www.kaybedenvebulan.com.tr" style="display:inline-block; margin-top:20px; padding: 10px 20px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px;">Sitemize Git</a>
             </div>
         """)
+    except Exception as e:
+        return HTMLResponse(content=f"<h2>Doğrulama sırasında hata oluştu: {str(e)}</h2>", status_code=500)
     finally:
         cur.close()
         conn.close()
