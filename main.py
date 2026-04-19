@@ -195,3 +195,6 @@ async def upload_image(file: UploadFile = File(...)):
         return {"imageUrl": url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+        # En altta, tüm route'lardan sonra
+handler = Mangum(app)
+        
