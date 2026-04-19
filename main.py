@@ -1,7 +1,4 @@
-# === VERCEL ASGI ADAPTÖRÜ İÇİN GEREKLİ IMPORT ===
 from mangum import Mangum
-
-import httpx
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,24 +8,11 @@ import uuid
 from datetime import datetime
 import os
 import traceback
-
-# --- MONKEYPATCH FOR HTTPX PROXY ERROR ---
-# Bu blok, Supabase kütüphanesinin httpx'e geçersiz 'proxy' parametresi göndermesini engeller.
-original_init = httpx.Client.__init__
-
-def patched_init(self, *args, **kwargs):
-    if "proxy" in kwargs:
-        # Eğer 'proxy' varsa ve 'proxies' yoksa, parametreyi dönüştür veya sil
-        if "proxies" not in kwargs:
-            kwargs["proxies"] = kwargs.pop("proxy")
-        else:
-            kwargs.pop("proxy")
-    original_init(self, *args, **kwargs)
-
-httpx.Client.__init__ = patched_init
-# -----------------------------------------
-
+import httpx
 from supabase import create_client, Client
+
+# Supabase için özel HTTPX client (proxy sorununu çözer)
+custom_http_client = httpx.Client()
 
 # --- CONFIGURATION ---
 SUPABASE_URL = "https://kcqikeyytshemptxbvxz.supabase.co"
@@ -40,8 +24,12 @@ def get_supabase() -> Client:
     global _supabase
     if _supabase is None:
         try:
-            # Yamalı httpx ile güvenli başlatma
-            _supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+            # Özel HTTPX client ile Supabase bağlantısı
+            _supabase = create_client(
+                SUPABASE_URL, 
+                SUPABASE_KEY,
+                http_client=custom_http_client
+            )
         except Exception as e:
             print(f"CRITICAL: Supabase connection failed: {str(e)}")
             raise RuntimeError(f"Database connection failed: {str(e)}")
