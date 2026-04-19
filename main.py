@@ -25,11 +25,15 @@ def get_supabase() -> Client:
     global _supabase
     if _supabase is None:
         try:
-            # create_client can fail if network is blocked or versions mismatch
+            # Proxy hatasını gidermek için kütüphaneyi en yalın haliyle başlatıyoruz.
+            # Bazı sürümlerde create_client içindeki varsayılan ayarlar httpx ile çakışabiliyor.
             _supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        except TypeError as te:
+            # Eğer hala proxy hatası alınıyorsa, kütüphane versiyonu zorlaması yapılmalı.
+            print(f"SUPABASE TYPE ERROR (Proxy issue?): {str(te)}")
+            raise RuntimeError(f"Library version mismatch: {str(te)}")
         except Exception as e:
             print(f"SUPABASE CONNECTION ERROR: {str(e)}")
-            # Raise a more descriptive error for internal logging
             raise RuntimeError(f"Database connection failed: {str(e)}")
     return _supabase
 
@@ -93,8 +97,8 @@ def read_root():
     error_detail = None
     try:
         client = get_supabase()
-        # Bir basit sorgu ile bağlantıyı doğrula
-        client.table('users').select('count', count='exact').limit(1).execute()
+        # Bağlantıyı test etmek için basit bir tablo okuması yapıyoruz
+        client.table('users').select('id').limit(1).execute()
         db_status = "connected"
     except Exception as e:
         error_detail = str(e)
@@ -102,7 +106,7 @@ def read_root():
 
     return {
         "status": "active",
-        "version": "2.2.1-stable",
+        "version": "2.2.2-stable",
         "database": db_status,
         "diag": error_detail if db_status == "disconnected" else "OK"
     }
