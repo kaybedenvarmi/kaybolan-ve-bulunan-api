@@ -8,6 +8,7 @@ from datetime import datetime
 import os
 import traceback
 from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions
 
 # --- CONFIGURATION ---
 # SUPABASE PROJECT: kcqikeyytshemptxbvxz
@@ -20,18 +21,25 @@ _supabase: Optional[Client] = None
 def get_supabase() -> Client:
     """
     Returns the Supabase client, initializing it if necessary.
-    Uses lazy loading to avoid errors during the initial module import in Vercel.
+    Uses custom options to bypass the 'proxy' keyword argument error in certain httpx versions.
     """
     global _supabase
     if _supabase is None:
         try:
-            # Proxy hatasını gidermek için kütüphaneyi en yalın haliyle başlatıyoruz.
-            # Bazı sürümlerde create_client içindeki varsayılan ayarlar httpx ile çakışabiliyor.
-            _supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+            # ClientOptions kullanarak kütüphanenin otomatik proxy ayarı yapmasını engelliyoruz
+            options = ClientOptions(
+                postgrest_client_timeout=10,
+                storage_client_timeout=10
+            )
+            # create_client fonksiyonuna bu seçenekleri paslıyoruz
+            _supabase = create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
         except TypeError as te:
-            # Eğer hala proxy hatası alınıyorsa, kütüphane versiyonu zorlaması yapılmalı.
-            print(f"SUPABASE TYPE ERROR (Proxy issue?): {str(te)}")
-            raise RuntimeError(f"Library version mismatch: {str(te)}")
+            # Eğer hata hala devam ediyorsa, kütüphanenin en temel haline zorluyoruz
+            print(f"SUPABASE TYPE ERROR (Proxy issue): {str(te)}")
+            try:
+                _supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+            except:
+                raise RuntimeError(f"Library version mismatch: {str(te)}")
         except Exception as e:
             print(f"SUPABASE CONNECTION ERROR: {str(e)}")
             raise RuntimeError(f"Database connection failed: {str(e)}")
@@ -106,7 +114,7 @@ def read_root():
 
     return {
         "status": "active",
-        "version": "2.2.2-stable",
+        "version": "2.2.3-stable",
         "database": db_status,
         "diag": error_detail if db_status == "disconnected" else "OK"
     }
