@@ -1,167 +1,27 @@
 from mangum import Mangum
-from fastapi import FastAPI, HTTPException, UploadFile, File, Request
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional
-import uuid
-from datetime import datetime
-import os
-import traceback
+from fastapi import FastAPI
 from supabase import create_client, Client
+import os
 
-# --- CONFIGURATION ---
 SUPABASE_URL = "https://kcqikeyytshemptxbvxz.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtjcWlrZXl5dHNoZW1wdHhidnh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYyNTQzNjYsImV4cCI6MjA5MTgzMDM2Nn0.LyFRsohwV9YKT3W5BxsEhuzRsfLyxG0ppZ0H3ldPLZU"
 
-_supabase: Optional[Client] = None
-
-def get_supabase() -> Client:
-    global _supabase
-    if _supabase is None:
-        try:
-            # Hiçbir ek parametre YOK - en basit hali
-            _supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        except Exception as e:
-            print(f"CRITICAL: Supabase connection failed: {str(e)}")
-            raise RuntimeError(f"Database connection failed: {str(e)}")
-    return _supabase
-
-# --- FASTAPI UYGULAMASI ---
 app = FastAPI()
 
-# Global Exception Handler
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    error_trace = traceback.format_exc()
-    print(f"LOGS: {error_trace}")
-    return JSONResponse(
-        status_code=500,
-        content={"status": "error", "message": str(exc)}
-    )
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# --- MODELS ---
-class UserCreate(BaseModel):
-    name: str
-    email: str
-    passwordHash: str
-    phoneNumber: Optional[str] = None
-
-class UserLogin(BaseModel):
-    email: str
-    passwordHash: str
-
-class PostCreate(BaseModel):
-    userId: str
-    title: str
-    description: str
-    category: str
-    type: str
-    imageUrl: Optional[str] = ""
-    location: Optional[str] = None
-    contactInfo: Optional[str] = None
-
-class CommentCreate(BaseModel):
-    postId: str
-    userId: str
-    text: str
-
-# --- ROUTES ---
-
 @app.get("/")
-def read_root():
-    db_status = "disconnected"
+def root():
     try:
-        client = get_supabase()
-        client.table('users').select('id').limit(1).execute()
-        db_status = "connected"
+        client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        result = client.table('users').select('id').limit(1).execute()
+        return {
+            "status": "connected",
+            "data": result.data
+        }
     except Exception as e:
-        print(f"Status check failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
 
-    return {
-        "status": "active",
-        "version": "2.2.4-patch",
-        "database": db_status
-    }
-
-@app.post("/users/register")
-def register(user: UserCreate):
-    db = get_supabase()
-    user_id = str(uuid.uuid4())
-    try:
-        existing = db.table('users').select('id').eq('email', user.email).execute()
-        if existing.data:
-            raise HTTPException(status_code=400, detail="E-posta zaten kayıtlı.")
-        
-        db.table('users').insert({
-            "id": user_id, 
-            "email": user.email, 
-            "name": user.name,
-            "phoneNumber": user.phoneNumber, 
-            "passwordHash": user.passwordHash,
-            "createdAt": datetime.now().isoformat(), 
-            "isVerified": 1, 
-            "isAdmin": 0
-        }).execute()
-        
-        return {"message": "Kayıt başarılı", "userId": user_id}
-    except Exception as e:
-        if isinstance(e, HTTPException): raise e
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/users/login")
-def login(data: UserLogin):
-    db = get_supabase()
-    try:
-        result = db.table('users').select('*').eq('email', data.email).eq('passwordHash', data.passwordHash).execute()
-        if not result.data:
-            raise HTTPException(status_code=401, detail="E-posta veya şifre yanlış.")
-        return result.data[0]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/posts")
-def get_posts():
-    db = get_supabase()
-    try:
-        result = db.table('posts').select('*').eq('status', 'approved').order('datePosted', desc=True).execute()
-        return result.data
-    except:
-        return []
-
-@app.post("/posts")
-def create_post(post: PostCreate):
-    db = get_supabase()
-    try:
-        data = post.dict()
-        data["id"] = str(uuid.uuid4())
-        data["datePosted"] = datetime.now().isoformat()
-        data["status"] = "pending"
-        db.table('posts').insert(data).execute()
-        return {"message": "İlan oluşturuldu."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/upload")
-async def upload_image(file: UploadFile = File(...)):
-    db = get_supabase()
-    try:
-        ext = os.path.splitext(file.filename)[1]
-        filename = f"{uuid.uuid4()}{ext}"
-        content = await file.read()
-        db.storage.from_("images").upload(path=filename, file=content)
-        url = db.storage.from_("images").get_public_url(filename)
-        return {"imageUrl": url}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# === VERCEL HANDLER ===
 handler = Mangum(app)
